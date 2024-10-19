@@ -1,0 +1,9 @@
+streamlit
+transformers
+sentence-transformers
+faiss-cpu
+rank-bm25
+torch
+numpy
+pandas
+scikit-learn
