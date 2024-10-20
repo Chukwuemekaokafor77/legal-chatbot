@@ -70,7 +70,7 @@ with open(file_paths['weakly_labeled_data'], 'r') as f:
     weakly_labeled_data = json.load(f)
 
 # Valid years with data in the database
-VALID_YEARS = list(range(2011, 2018)) + [2021, 2022]                    
+VALID_YEARS = list(range(2011, 2018)) + [2021, 2022]
 
 # Define the DocumentStore class
 class DocumentStore:
