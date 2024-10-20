@@ -9,9 +9,7 @@ from sentence_transformers import SentenceTransformer
 from transformers import T5ForConditionalGeneration, T5Tokenizer, AutoTokenizer, AutoModelWithLMHead, BertTokenizer, BertForSequenceClassification
 import time
 from rank_bm25 import BM25Okapi
-import os
 import requests
-import json
 
 # Dropbox URLs
 dropbox_links = {
@@ -44,36 +42,32 @@ for file_key, file_url in dropbox_links.items():
         download_file(file_url, file_path)
         print(f"{file_path} downloaded successfully.")
 
-
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # Define file paths
-#EMBEDDINGS_PATH = "./pdf_embeddings.json"
-#TEXTS_PATH = "./pdf_texts.json"
-#FAISS_INDEX_PATH = "./legal_docs_index.faiss"
+EMBEDDINGS_PATH = file_paths['pdf_embeddings']
+TEXTS_PATH = file_paths['pdf_texts']
+FAISS_INDEX_PATH = file_paths['legal_docs_index']
 LEGALBERT_MODEL_PATH = "./legalbert_finetuned"  # Path to the fine-tuned LegalBERT
 LEGAL_T5_SUMMARIZATION_PATH = "t5-small"  # For summarization
 LEGAL_T5_CLASSIFICATION_PATH = "SEBIS/legal_t5_small_cls_en"  # For classification
 
 # Load pdf_embeddings.json
-with open('pdf_embeddings.json', 'r') as f:
+with open(EMBEDDINGS_PATH, 'r') as f:
     pdf_embeddings = json.load(f)
 
 # Load pdf_texts.json
-with open('pdf_texts.json', 'r') as f:
+with open(TEXTS_PATH, 'r') as f:
     pdf_texts = json.load(f)
 
 # Load legal_docs_index.faiss (FAISS index)
-import faiss
-faiss_index = faiss.read_index('legal_docs_index.faiss')
+faiss_index = faiss.read_index(FAISS_INDEX_PATH)
 
 # Load weakly_labeled_data.json
-with open('weakly_labeled_data.json', 'r') as f:
+with open(file_paths['weakly_labeled_data'], 'r') as f:
     weakly_labeled_data = json.load(f)
-
-# Continue with the rest of your RAG system logic...
 
 # Valid years with data in the database
 VALID_YEARS = list(range(2011, 2018)) + [2021, 2022]                    
@@ -105,28 +99,17 @@ class DocumentStore:
         else:
             logger.error(f"Texts data file not found at {texts_path}.")
             raise FileNotFoundError(f"Texts data file not found at {texts_path}.")
-
+        
         # Prepare BM25 index for full-text search
         self.bm25 = self._prepare_bm25()
         logger.info("BM25 index prepared.")
-
-        # Debug prints
-        print(f"Number of documents loaded: {len(self.texts_data)}")
-        print(f"FAISS index size: {self.index.ntotal}")
     
     def _prepare_bm25(self):
-        if isinstance(self.texts_data, dict):
-            corpus = [str(doc).lower() for doc in self.texts_data.values()]
-        elif isinstance(self.texts_data, list):
-            corpus = [str(doc).lower() for doc in self.texts_data]
-        else:
-            logger.error(f"Unexpected texts_data type: {type(self.texts_data)}")
-            raise ValueError(f"Unexpected texts_data type: {type(self.texts_data)}")
-        
+        corpus = [str(doc).lower() for doc in self.texts_data.values()]
         tokenized_corpus = [doc.split() for doc in corpus]
         return BM25Okapi(tokenized_corpus)
 
-# Define the RAGModel class (with year filtering)
+# Define the RAGModel class
 class RAGModel:
     def __init__(self, document_store: DocumentStore):
         self.document_store = document_store
@@ -134,7 +117,7 @@ class RAGModel:
     def get_relevant_documents(self, query: str, top_k: int = 3, year: int = None) -> List[Dict[str, Any]]:
         print(f"Query: {query}")
         print(f"Year filter: {year}")
-
+        
         # Filter by year (if provided)
         filtered_docs = []
         for doc_id, doc in self.document_store.texts_data.items():
@@ -151,38 +134,19 @@ class RAGModel:
         tokenized_query = query.lower().split()
         bm25 = BM25Okapi([doc.lower().split() for doc in filtered_corpus])
         bm25_scores = bm25.get_scores(tokenized_query)
-        print(f"Top 5 BM25 scores: {sorted(bm25_scores, reverse=True)[:5]}")
-        top_n = min(top_k * 2, len(bm25_scores))  # Get more candidates for filtering
-        top_indices = np.argsort(bm25_scores)[-top_n:][::-1]
+        top_n = np.argsort(bm25_scores)[-top_k:][::-1]
 
         results = []
-        for idx in top_indices:
+        for idx in top_n:
             doc_id = filtered_ids[idx]
             doc = self.document_store.texts_data[doc_id]
-
-            # Check if the document is a dictionary or a string
-            if isinstance(doc, dict):
-                # Document is a dictionary, so safely use .get()
-                doc_text = doc.get('Title', '') + '\n' + doc.get('Citation', '')
-            elif isinstance(doc, str):
-                # Document is a string, so use it directly as text
-                doc_text = doc  # Use the document string as is
-            else:
-                # If the document type is unexpected, log an error and skip
-                logger.error(f"Unexpected document type: {type(doc)} for doc_id: {doc_id}")
-                continue
-
-            # Append the result
+            doc_text = doc.get('Title', '') + '\n' + doc.get('Citation', '') if isinstance(doc, dict) else doc
             results.append({
                 "id": doc_id,
                 "text": doc_text,
                 "similarity": bm25_scores[idx]
             })
 
-            if len(results) == top_k:
-                break
-
-        print(f"Number of results after retrieval: {len(results)}")
         return results
 
 # Define the LegalT5Summarizer class
@@ -194,17 +158,6 @@ class LegalT5Summarizer:
     def summarize(self, text: str, max_length: int = 100) -> str:
         input_ids = self.tokenizer.encode("summarize: " + text[:512], return_tensors="pt", max_length=512, truncation=True)
         output = self.model.generate(input_ids, max_length=max_length, num_beams=2, early_stopping=True)
-        return self.tokenizer.decode(output[0], skip_special_tokens=True)
-
-# Define the LegalT5Classifier class
-class LegalT5Classifier:
-    def __init__(self, model_name: str = LEGAL_T5_CLASSIFICATION_PATH):
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModelWithLMHead.from_pretrained(model_name)
-
-    def classify(self, text: str) -> str:
-        inputs = self.tokenizer(text, return_tensors="pt", max_length=512, truncation=True)
-        output = self.model.generate(**inputs)
         return self.tokenizer.decode(output[0], skip_special_tokens=True)
 
 # Define the LegalBERTResponseGenerator class
@@ -238,32 +191,24 @@ class LegalBERTResponseGenerator:
 
 # Define the RAGSystem class
 class RAGSystem:
-    def __init__(self, embeddings_path: str, texts_path: str, faiss_index_path: str):
-        self.document_store = DocumentStore(embeddings_path, texts_path, faiss_index_path)
+    def __init__(self):
+        self.document_store = DocumentStore(EMBEDDINGS_PATH, TEXTS_PATH, FAISS_INDEX_PATH)
         self.rag_model = RAGModel(self.document_store)
         self.legalbert_response_generator = LegalBERTResponseGenerator()
-        self.summarizer = LegalT5Summarizer()  # Integrate LegalT5 summarizer
-        self.classifier = LegalT5Classifier()  # Integrate LegalT5 classifier
+        self.summarizer = LegalT5Summarizer()
 
     def process_query(self, query: str, year: int = None) -> Dict[str, Any]:
         try:
-            # Get relevant documents based on the query and optional year filter
+            # Get relevant documents
             relevant_docs = self.rag_model.get_relevant_documents(query, year=year)
             if not relevant_docs:
-                return {
-                    "query": query,
-                    "error": "No relevant documents found"
-                }
-
-            # Generate summary for each document using LegalT5
+                return {"query": query, "error": "No relevant documents found"}
+            
+            # Summarize each document
             for doc in relevant_docs:
                 doc['summary'] = self.summarizer.summarize(doc['text'])
-
-            # Classify each document using LegalT5 classification
-            for doc in relevant_docs:
-                doc['classification'] = self.classifier.classify(doc['text'])
-
-            # Generate a response using the fine-tuned LegalBERT model
+            
+            # Generate a response using the fine-tuned LegalBERT
             response = self.legalbert_response_generator.generate_response(query, relevant_docs)
 
             return {
@@ -273,77 +218,44 @@ class RAGSystem:
             }
         except Exception as e:
             logger.error(f"Error processing query: {e}")
-            return {
-                "query": query,
-                "error": str(e)
-            }
+            return {"query": query, "error": str(e)}
 
-# Initialize RAG System
-def initialize_rag_system():
-    try:
-        verify_files()
-        rag_system = RAGSystem(EMBEDDINGS_PATH, TEXTS_PATH, FAISS_INDEX_PATH)
-        logger.info("RAG System initialized successfully.")
-        return rag_system
-    except Exception as e:
-        logger.error(f"Failed to initialize RAG System: {e}")
-        st.error(f"Failed to initialize RAG System: {e}")
-        return None
-
-# Streamlit App with Chatbot Interface
+# Initialize and run the Streamlit app
 def main():
     st.title("Canadian Law RAG System")
     st.write("Interactive application to query Canadian jurisprudence and interact with the chatbot.")
 
     # Initialize RAG system
-    rag_system = initialize_rag_system()
-    if not rag_system:
-        st.stop()
+    rag_system = RAGSystem()
 
-    # Chatbot Interface
-    st.header("Chatbot Interface")
-    user_input = st.text_input("Ask a legal question:")
-    year_input = st.selectbox("Select Year (optional)", [""] + VALID_YEARS)
+    # User input
+    query = st.text_input("Ask a legal question:")
+    year = st.selectbox("Select Year (optional)", [""] + VALID_YEARS)
 
     if st.button("Submit"):
-        if not user_input.strip():
+        if not query.strip():
             st.warning("Please enter a valid question.")
         else:
-            year = int(year_input) if year_input else None
+            year = int(year) if year else None
             with st.spinner("Processing your query..."):
-                start_time = time.time()
-                try:
-                    result = rag_system.process_query(query=user_input, year=year)
-                    end_time = time.time()
+                result = rag_system.process_query(query=query, year=year)
 
-                    if "error" in result:
-                        st.error(result["error"])
-                    elif not result['relevant_documents']:
-                        st.warning("No relevant documents found. Try adjusting your query.")
-                    else:
-                        st.success("Query processed successfully!")
-                        st.markdown(f"**Query:** {result['query']}")
+                if "error" in result:
+                    st.error(result["error"])
+                else:
+                    st.success("Query processed successfully!")
+                    st.markdown(f"**Query:** {result['query']}")
 
-                        st.markdown("### Relevant Documents:")
-                        for i, doc in enumerate(result['relevant_documents'], 1):
-                            # Display summary first
-                            st.markdown(f"**Document {i}:** `{doc['id']}`")
-                            st.markdown(f"*Similarity Score:* {doc['similarity']:.4f}")
-                            st.markdown(f"*Summary:* {doc['summary']}")
-                            st.markdown(f"*Classification:* {doc['classification']}")
+                    for i, doc in enumerate(result['relevant_documents'], 1):
+                        st.markdown(f"**Document {i}:** `{doc['id']}`")
+                        st.markdown(f"*Similarity Score:* {doc['similarity']:.4f}")
+                        st.markdown(f"*Summary:* {doc['summary']}")
 
-                            # Add expander for the full document
-                            with st.expander(f"View Full Document {i}"):
-                                st.markdown(f"*Content:* {doc['text']}")
-                            st.markdown("---")
+                        with st.expander(f"View Full Document {i}"):
+                            st.write(doc['text'])
 
-                        st.markdown("### Response:")
-                        st.write(result['response'])
-
-                        st.markdown(f"**Processing Time:** {end_time - start_time:.2f} seconds")
-                except Exception as e:
-                    st.error(f"An error occurred while processing your query: {str(e)}")
-                    logger.exception("Error in query processing")
+                    st.markdown("### Response:")
+                    st.write(result["response"])
 
 if __name__ == "__main__":
     main()
