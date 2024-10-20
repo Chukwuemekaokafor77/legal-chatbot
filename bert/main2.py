@@ -53,9 +53,9 @@ logger = logging.getLogger(__name__)
 #EMBEDDINGS_PATH = "./pdf_embeddings.json"
 #TEXTS_PATH = "./pdf_texts.json"
 #FAISS_INDEX_PATH = "./legal_docs_index.faiss"
-#LEGALBERT_MODEL_PATH = "./legalbert_finetuned"  # Path to the fine-tuned LegalBERT
-#LEGAL_T5_SUMMARIZATION_PATH = "t5-small"  # For summarization
-#LEGAL_T5_CLASSIFICATION_PATH = "SEBIS/legal_t5_small_cls_en"  # For classification
+LEGALBERT_MODEL_PATH = "./legalbert_finetuned"  # Path to the fine-tuned LegalBERT
+LEGAL_T5_SUMMARIZATION_PATH = "t5-small"  # For summarization
+LEGAL_T5_CLASSIFICATION_PATH = "SEBIS/legal_t5_small_cls_en"  # For classification
 
 # Load pdf_embeddings.json
 with open('pdf_embeddings.json', 'r') as f:
