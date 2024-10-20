@@ -9,27 +9,74 @@ from sentence_transformers import SentenceTransformer
 from transformers import T5ForConditionalGeneration, T5Tokenizer, AutoTokenizer, AutoModelWithLMHead, BertTokenizer, BertForSequenceClassification
 import time
 from rank_bm25 import BM25Okapi
+import os
+import requests
+import json
+
+# Dropbox URLs
+dropbox_links = {
+    'pdf_embeddings': 'https://www.dropbox.com/scl/fi/2c6nl31rskv4t40uj58xo/pdf_embeddings.json?rlkey=6ekhg7lwgt40mb9vnnalabgqp&st=06srbgfo&dl=1',
+    'pdf_texts': 'https://www.dropbox.com/scl/fi/mo5h5hx5w9zh60i13lokp/pdf_texts.json?rlkey=5y1d3u34xubn5yx8k38vz9o1n&st=u5v3jp8t&dl=1',
+    'legal_docs_index': 'https://www.dropbox.com/scl/fi/ni1uwvdkz9gjekq72t7mn/legal_docs_index.faiss?rlkey=w9fafgc51qtzgoox6w0m97dxo&st=rfqok1ju&dl=1',
+    'weakly_labeled_data': 'https://www.dropbox.com/scl/fi/6tz78wpa73y173nwjryjb/weakly_labeled_data.json?rlkey=v6c1moduprmetc60732wtrn3e&st=2h0z97f0&dl=1'
+}
+
+def download_file(url, output):
+    response = requests.get(url, stream=True)
+    with open(output, 'wb') as file:
+        for chunk in response.iter_content(chunk_size=8192):
+            if chunk:
+                file.write(chunk)
+
+# Paths where files will be saved
+file_paths = {
+    'pdf_embeddings': 'pdf_embeddings.json',
+    'pdf_texts': 'pdf_texts.json',
+    'legal_docs_index': 'legal_docs_index.faiss',
+    'weakly_labeled_data': 'weakly_labeled_data.json'
+}
+
+# Check if files already exist, if not download them
+for file_key, file_url in dropbox_links.items():
+    file_path = file_paths[file_key]
+    if not os.path.exists(file_path):
+        print(f"Downloading {file_path} from Dropbox...")
+        download_file(file_url, file_path)
+        print(f"{file_path} downloaded successfully.")
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # Define file paths
-EMBEDDINGS_PATH = "./pdf_embeddings.json"
-TEXTS_PATH = "./pdf_texts.json"
-FAISS_INDEX_PATH = "./legal_docs_index.faiss"
-LEGALBERT_MODEL_PATH = "./legalbert_finetuned"  # Path to the fine-tuned LegalBERT
-LEGAL_T5_SUMMARIZATION_PATH = "t5-small"  # For summarization
-LEGAL_T5_CLASSIFICATION_PATH = "SEBIS/legal_t5_small_cls_en"  # For classification
+#EMBEDDINGS_PATH = "./pdf_embeddings.json"
+#TEXTS_PATH = "./pdf_texts.json"
+#FAISS_INDEX_PATH = "./legal_docs_index.faiss"
+#LEGALBERT_MODEL_PATH = "./legalbert_finetuned"  # Path to the fine-tuned LegalBERT
+#LEGAL_T5_SUMMARIZATION_PATH = "t5-small"  # For summarization
+#LEGAL_T5_CLASSIFICATION_PATH = "SEBIS/legal_t5_small_cls_en"  # For classification
+
+# Load pdf_embeddings.json
+with open('pdf_embeddings.json', 'r') as f:
+    pdf_embeddings = json.load(f)
+
+# Load pdf_texts.json
+with open('pdf_texts.json', 'r') as f:
+    pdf_texts = json.load(f)
+
+# Load legal_docs_index.faiss (FAISS index)
+import faiss
+faiss_index = faiss.read_index('legal_docs_index.faiss')
+
+# Load weakly_labeled_data.json
+with open('weakly_labeled_data.json', 'r') as f:
+    weakly_labeled_data = json.load(f)
+
+# Continue with the rest of your RAG system logic...
 
 # Valid years with data in the database
-VALID_YEARS = list(range(2011, 2018)) + [2021, 2022]
-
-def verify_files():
-    files_to_check = [EMBEDDINGS_PATH, TEXTS_PATH, FAISS_INDEX_PATH, LEGALBERT_MODEL_PATH]
-    for file in files_to_check:
-        if not os.path.exists(file):
-            raise FileNotFoundError(f"Required file not found: {file}")
+VALID_YEARS = list(range(2011, 2018)) + [2021, 2022]                    
 
 # Define the DocumentStore class
 class DocumentStore:
