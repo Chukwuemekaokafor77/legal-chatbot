@@ -7,3 +7,4 @@ torch
 numpy
 pandas
 scikit-learn
+sentencepiece
