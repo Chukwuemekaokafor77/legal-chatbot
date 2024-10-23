@@ -223,7 +223,7 @@ class RAGSystem:
 # Initialize and run the Streamlit app
 def main():
     st.title("Canadian Law RAG System")
-    st.write("Interactive application to query Canadian jurisprudence and interact with the chatbot.")
+    st.write("Powered by Themiscore.")
 
     # Initialize RAG system
     rag_system = RAGSystem()
